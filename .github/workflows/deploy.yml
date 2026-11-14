@@ -1,0 +1,182 @@
+name: Build & publish wasm OCRmyPDF to Pages
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+    - "README.md"
+    - "docs/**"
+  workflow_dispatch:
+    inputs:
+      skip-caches:
+        description: "Ignore build caches (rebuild everything)"
+        type: boolean
+        default: false
+  schedule:
+    # Weekly: Mondays 04:20 UTC — pick up upstream OCRmyPDF main + new wheels
+    - cron: "20 4 * * 1"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+env:
+  PYODIDE_VERSION: "314.0.8"
+  PIKEPDF_VERSION: "10.18.1"
+  QPDF_VERSION: "12.4.2"
+  TESSERACT_WASM_VERSION: "0.11.0"
+  EMSDK_VERSION: "5.0.3"
+
+jobs:
+  build:
+    name: Build wasm runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk (drop preinstalled toolchains we do not need)
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          df -h /
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # ------------------------------------------------------------- emsdk
+      - name: Cache emsdk
+        id: cache-emsdk
+        uses: actions/cache@v4
+        with:
+          path: ~/wasm-build/emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}
+
+      - name: Install emsdk ${{ env.EMSDK_VERSION }}
+        if: steps.cache-emsdk.outputs.cache-hit != 'true' && inputs.skip-caches != 'true'
+        run: |
+          mkdir -p ~/wasm-build
+          git clone --depth 1 --branch $EMSDK_VERSION \
+            https://github.com/emscripten-core/emsdk.git ~/wasm-build/emsdk
+          ~/wasm-build/emsdk/emsdk install $EMSDK_VERSION
+          ~/wasm-build/emsdk/emsdk activate $EMSDK_VERSION
+
+      - name: Activate cached emsdk
+        if: steps.cache-emsdk.outputs.cache-hit == 'true' || inputs.skip-caches == 'true'
+        run: ~/wasm-build/emsdk/emsdk activate $EMSDK_VERSION || true
+
+      # ------------------------------------------------------- upstream clone
+      - name: Clone upstream OCRmyPDF (main)
+        run: |
+          git clone --depth 1 https://github.com/ocrmypdf/OCRmyPDF.git \
+            $HOME/software/OCRmyPDF
+          cd $HOME/software/OCRmyPDF
+          echo "OCRMYPDF_REF=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "OCRMYPDF_VERSION=$(python3 -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")" >> "$GITHUB_ENV"
+
+      # ----------------------------------------------------------- qpdf wasm
+      - name: Cache qpdf wasm build
+        id: cache-qpdf
+        uses: actions/cache@v4
+        with:
+          path: wasm/build/install
+          key: qpdf-wasm-${{ env.QPDF_VERSION }}-ems${{ env.EMSDK_VERSION }}-${{ hashFiles('wasm/build-qpdf-wasm.sh') }}
+
+      - name: Build qpdf (wasm)
+        if: steps.cache-qpdf.outputs.cache-hit != 'true' && inputs.skip-caches != 'true'
+        run: |
+          source ~/wasm-build/emsdk/emsdk_env.sh
+          ./wasm/build-qpdf-wasm.sh
+
+      # -------------------------------------------------------- pikepdf wasm
+      - name: Cache pikepdf wasm wheel
+        id: cache-pikepdf
+        uses: actions/cache@v4
+        with:
+          path: wasm/build/dist
+          key: pikepdf-wasm-${{ env.PIKEPDF_VERSION }}-pyodide${{ env.PYODIDE_VERSION }}-qpdf${{ env.QPDF_VERSION }}-${{ hashFiles('wasm/build-pikepdf-wasm.sh') }}
+
+      - name: Build pikepdf (wasm wheel)
+        if: steps.cache-pikepdf.outputs.cache-hit != 'true' && inputs.skip-caches != 'true'
+        run: |
+          source ~/wasm-build/emsdk/emsdk_env.sh
+          ./wasm/build-pikepdf-wasm.sh
+
+      # ------------------------------------------------------------ runtime
+      - name: Assemble runtime bundle
+        env:
+          OCRMYPDF_REF: ${{ env.OCRMYPDF_REF }}
+        run: |
+          ./wasm/build-runtime.sh
+          echo "built $(cat wasm/build/site/runtime-meta.json | python3 -c 'import json,sys;print(len(json.load(sys.stdin)["files"]))') files"
+
+      # ---------------------------------------------------------- smoke test
+      - name: Smoke test (full pipeline in Node)
+        run: |
+          set -e
+          node wasm/smoke-test.mjs --site wasm/build/site
+
+      # ------------------------------------------------------ assemble site
+      - name: Assemble Pages site
+        run: |
+          rm -rf site
+          cp -r public site
+          rm -rf site/pyodide site/tesseract site/wheels site/tessdata site/pyodide-glue site/runtime-meta.json
+          cp -r wasm/build/site/pyodide site/pyodide
+          cp -r wasm/build/site/tesseract site/tesseract
+          cp -r wasm/build/site/wheels site/wheels
+          cp -r wasm/build/site/tessdata site/tessdata
+          cp -r wasm/build/site/pyodide-glue site/pyodide-glue
+          cp wasm/build/site/runtime-meta.json site/runtime-meta.json
+          # annotate with build identity for the about panel + SW versioning
+          python3 - <<'EOF'
+          import json, datetime
+          with open('site/runtime-meta.json') as f:
+              meta = json.load(f)
+          meta['ocrmypdf'] = '${{ env.OCRMYPDF_VERSION }}'
+          meta['ocrmypdf_ref'] = '${{ env.OCRMYPDF_REF }}'
+          meta['built'] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+          with open('site/runtime-meta.json', 'w') as f:
+              json.dump(meta, f, indent=1, sort_keys=True)
+          EOF
+
+      - name: Generate service worker precache manifest
+        run: |
+          python3 scripts/gen-sw-manifest.py site \
+            --version "v-${{ env.OCRMYPDF_REF }}-$(date -u +%Y%m%d%H%M%S)"
+
+      # -------------------------------------------------------------- upload
+      - name: Upload smoke-test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-output
+          path: wasm/build/smoke-out/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}

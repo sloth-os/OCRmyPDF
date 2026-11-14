@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OCRmyPDF — searchable PDFs, entirely in your browser</title>
+  <meta name="description" content="Add a searchable OCR text layer to scanned PDFs. Runs entirely in your browser — your files never leave your device. Works offline." />
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="" width="36" height="36" />
+      <div>
+        <h1>OCRmyPDF <span class="web-tag">web</span></h1>
+        <p class="tagline">Searchable PDFs, entirely in your browser</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-install" class="ghost hidden" title="Install app">⤓ Install app</button>
+      <a class="about-link" href="#about">About</a>
+    </div>
+  </header>
+
+  <main>
+    <section id="drop-section" aria-labelledby="drop-title">
+      <div id="drop-zone" class="drop-zone" tabindex="0" role="button"
+           aria-label="Choose or drop a PDF to OCR">
+        <div class="dz-inner">
+          <div class="dz-icon" aria-hidden="true">📄</div>
+          <h2 id="drop-title">Drop a PDF here</h2>
+          <p>or <button id="btn-pick" class="primary">choose a file</button></p>
+          <p class="hint">Processed on this device — nothing is uploaded.</p>
+        </div>
+        <input id="file-input" type="file" accept="application/pdf,.pdf" hidden />
+      </div>
+    </section>
+
+    <section id="settings" class="settings hidden" aria-label="OCR settings">
+      <div class="file-card">
+        <div class="file-name" id="file-name">document.pdf</div>
+        <div class="file-meta" id="file-meta"></div>
+        <button id="btn-change-file" class="ghost small">Change file</button>
+      </div>
+
+      <div class="controls">
+        <label>
+          <span>Language</span>
+          <select id="opt-language"></select>
+        </label>
+        <label>
+          <span>Output</span>
+          <select id="opt-output">
+            <option value="pdf" selected>PDF</option>
+            <option value="pdfa">PDF/A-2b</option>
+          </select>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="opt-deskew" />
+          <span>Deskew</span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="opt-rotate" />
+          <span>Rotate pages</span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="opt-sidecar" />
+          <span>Text sidecar</span>
+        </label>
+      </div>
+
+      <button id="btn-ocr" class="primary big">OCR this PDF</button>
+    </section>
+
+    <section id="progress-section" class="hidden" aria-live="polite">
+      <h2 id="progress-title">Preparing…</h2>
+      <div class="progress-track"><div id="progress-bar"></div></div>
+      <div class="progress-meta">
+        <span id="progress-step">Loading engine</span>
+        <span id="progress-pages"></span>
+      </div>
+      <div id="log-lines" class="log-lines" aria-hidden="true"></div>
+      <button id="btn-cancel" class="ghost">Cancel</button>
+    </section>
+
+    <section id="done-section" class="hidden">
+      <h2>✓ Done</h2>
+      <div class="done-card">
+        <div class="done-info" id="done-info"></div>
+        <div class="done-actions">
+          <button id="btn-download" class="primary">Download PDF</button>
+          <button id="btn-download-sidecar" class="hidden">Download text</button>
+          <button id="btn-again" class="ghost">OCR another file</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="error-section" class="hidden" role="alert">
+      <h2>Something went wrong</h2>
+      <pre id="error-detail"></pre>
+      <button id="btn-retry" class="primary">Try again</button>
+    </section>
+
+    <section id="about" class="about">
+      <h2>About</h2>
+      <p>
+        This is <a href="https://github.com/ocrmypdf/OCRmyPDF" rel="noopener">OCRmyPDF</a>
+        compiled to WebAssembly (via
+        <a href="https://pyodide.org" rel="noopener">Pyodide</a>), with
+        <a href="https://github.com/robertknight/tesseract-wasm" rel="noopener">tesseract-wasm</a>
+        for recognition. Everything runs on your device. Install it (from your
+        browser's install/menu) to work offline.
+      </p>
+      <p>
+        On desktop Chromium browsers this app registers as a
+        <strong>file handler for PDFs</strong> — after installing it, you can
+        right-click a PDF → Open with → OCRmyPDF.
+      </p>
+      <p class="build-info" id="build-info"></p>
+    </section>
+  </main>
+
+  <footer>
+    <a href="https://github.com/sloth-os/OCRmyPDF" rel="noopener">Source</a>
+    · MPL-2.0
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
