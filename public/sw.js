@@ -84,6 +84,31 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  // Navigations: network first, fall back to the precached index.html when
+  // offline. The precache stores the shell as "index.html", so a navigation
+  // to the bare directory URL ("/OCRmyPDF/") would otherwise miss both the
+  // precache set (href mismatch) and the runtime cache (never fetched under
+  // SW control) — respondWith(undefined) then fails the navigation outright.
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      (async () => {
+        try {
+          return await fetch(event.request);
+        } catch {
+          const cache = await caches.open(PRECACHE);
+          const shell =
+            (await cache.match(event.request, { ignoreVary: true })) ||
+            (await cache.match(new URL("index.html", self.registration.scope).href, {
+              ignoreVary: true,
+            }));
+          if (shell) return shell;
+          throw new Error("offline and index.html not precached");
+        }
+      })()
+    );
+    return;
+  }
+
   if (precacheSet.has(url.href)) {
     event.respondWith(
       (async () => {
