@@ -265,14 +265,14 @@ async function runOcr() {
 
   try {
     await ensureTessdata(opts.language);
-    const result = await workerCall(
-      {
-        id: "ocr",
-        file: state.file,
-        options: opts,
-      },
-      [state.file]
-    );
+    // Note: no transfer list — File/Blob are cloneable but NOT transferable;
+    // putting them in transferList makes postMessage throw DataCloneError.
+    const result = await workerCall({
+      id: "ocr",
+      type: "ocr",
+      file: state.file,
+      options: opts,
+    });
     state.resultBlob = result.pdfBlob;
     state.resultSidecar = result.sidecarBlob || null;
 
@@ -393,7 +393,7 @@ async function boot() {
 
   // Prewarm the worker in the background after idle so the first OCR is fast
   const prewarm = () => {
-    getWorker().postMessage({ id: "prewarm" });
+    getWorker().postMessage({ id: "prewarm", type: "prewarm" });
   };
   if ("requestIdleCallback" in window) requestIdleCallback(prewarm, { timeout: 8000 });
   else setTimeout(prewarm, 4000);

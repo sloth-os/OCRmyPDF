@@ -54,6 +54,73 @@ cp -L pyodide-dist/pyodide.js pyodide-dist/pyodide.mjs \
    "$OUT/pyodide/"
 cp -L pyodide-dist/python* "$OUT/pyodide/" 2>/dev/null || true
 
+# Pyodide "lock" wheels that micropip/loadPackage resolve at runtime. The
+# dist tree ships only the core runtime — every package resolved from
+# pyodide-lock.json (micropip itself plus the ocrmypdf dependency closure
+# that pyodide provides: pillow, rich, lxml, fonttools, ...) is fetched
+# relative to indexURL. Without local copies, pyodide/micropip silently fall
+# back to cdn.jsdelivr.net: the Node smoke test stays green (it has network)
+# while the deployed PWA breaks its offline guarantee. Fetch the exact
+# closure from the lock so everything resolves same-origin.
+# (pydantic/pydantic-core are NOT in this closure: the lock ships pydantic
+# 2.12.5, but upstream ocrmypdf pins >=2.14 — those two come from PyPI via
+# fetch-wheels.py into wheels/ instead.)
+echo "== pyodide lock wheels (offline closure) ==" >&2
+python3 - "$OUT/pyodide" "$PYODIDE_VERSION" <<'EOF'
+import json, sys, urllib.request
+from pathlib import Path
+
+out, pyodide_v = Path(sys.argv[1]), sys.argv[2]
+lock = json.load(open(out / "pyodide-lock.json"))
+pkgs = lock["packages"]
+
+SEEDS = ["micropip", "packaging", "pillow", "pluggy", "rich", "fonttools",
+         "cffi", "pycparser", "lxml", "annotated-types"]
+# NOT seeded: typing-extensions / typing-inspection / pydantic — the lock's
+# pydantic 2.12.5 + typing-extensions 4.15.0 are older than ocrmypdf's
+# pydantic>=2.14 pin (which needs typing-extensions>=4.16); fetch-wheels.py
+# ships the newer pure/wasm wheels into wheels/ instead.
+
+def norm(n):
+    return n.lower().replace("_", "-")
+
+by_norm = {norm(k): k for k in pkgs}
+need, stack = set(), list(SEEDS)
+while stack:
+    n = norm(stack.pop())
+    if n in need:
+        continue
+    need.add(n)
+    key = by_norm.get(n)
+    if key:
+        stack.extend(pkgs[key].get("depends") or [])
+
+base = f"https://cdn.jsdelivr.net/pyodide/v{pyodide_v}/full"
+missing = []
+for n in sorted(need):
+    key = by_norm.get(n)
+    if not key:
+        missing.append(n)
+        continue
+    fname = pkgs[key]["file_name"]
+    dest = out / fname
+    if dest.exists():
+        print(f"  cached: {fname}")
+        continue
+    print(f"  fetching {fname}")
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    with urllib.request.urlopen(f"{base}/{fname}") as r, open(tmp, "wb") as f:
+        while True:
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            f.write(chunk)
+    tmp.rename(dest)
+if missing:
+    sys.exit(f"error: lock packages not in pyodide-lock.json: {missing}")
+print(f"  {len(list(out.glob('*.whl')))} lock wheels in {out}")
+EOF
+
 # ------------------------------------------------------------- tesseract-wasm
 echo "== tesseract-wasm $TESSERACT_WASM_VERSION ==" >&2
 if [[ ! -d tesseract-wasm-pkg ]]; then

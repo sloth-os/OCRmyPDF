@@ -41,6 +41,14 @@ PYPI_WHEELS: dict[str, str] = {
     "markdown-it-py": None,         # rich dep, pure
     "mdurl": None,                  # markdown-it-py dep, pure
     "pygments": None,               # rich.traceback dep, pure
+    # pydantic: the pyodide lock ships 2.12.5, but ocrmypdf pins >=2.14 —
+    # micropip would fall back to PyPI at runtime (cross-origin, breaks the
+    # offline PWA). Ship the matching set locally; pydantic-core has
+    # pyemscripten_2026_0 wasm wheels on PyPI.
+    "pydantic": "2.14.3",           # pure
+    "pydantic-core": "2.50.4",      # wasm wheel cp314-pyemscripten_2026_0
+    "typing-extensions": None,      # pydantic dep (>=4.16), pure
+    "typing-inspection": None,      # pydantic dep, pure
 }
 
 # from the Pyodide CDN (built for the exact runtime version)
@@ -104,7 +112,7 @@ def main() -> int:
     print("PyPI wheels:")
     for pkg, ver in PYPI_WHEELS.items():
         files = pypi_files(pkg, ver)
-        if pkg in ("pypdfium2", "uharfbuzz", "charset-normalizer"):
+        if pkg in ("pypdfium2", "uharfbuzz", "charset-normalizer", "pydantic-core"):
             target = pick_wasm(files, pkg)
         else:
             target = pick_pure(files, pkg)

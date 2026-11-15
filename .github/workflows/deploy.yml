@@ -54,16 +54,31 @@ jobs:
         with:
           node-version: "22"
 
+      # uv provides the host python 3.14 that the pyodide xbuildenv requires
+      # (build-pikepdf-wasm.sh auto-detects uv: `uv python install/find 3.14`).
+      # The runner's system python is 3.13 and setup-python has no 3.14 for
+      # this image, so let uv manage the interpreter.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
       # ------------------------------------------------------------- emsdk
+      # skip-caches semantics: when the input is set, the cache restore steps
+      # are skipped entirely, so cache-hit stays empty and every build step
+      # below runs ("ignore build caches, rebuild everything"). With the
+      # restore steps unconditional, a skip-caches dispatch would instead
+      # restore AND skip the builds (the old inverted guards), failing outright.
       - name: Cache emsdk
         id: cache-emsdk
+        if: inputs.skip-caches != 'true'
         uses: actions/cache@v4
         with:
           path: ~/wasm-build/emsdk
           key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}
 
       - name: Install emsdk ${{ env.EMSDK_VERSION }}
-        if: steps.cache-emsdk.outputs.cache-hit != 'true' && inputs.skip-caches != 'true'
+        if: steps.cache-emsdk.outputs.cache-hit != 'true'
         run: |
           mkdir -p ~/wasm-build
           git clone --depth 1 --branch $EMSDK_VERSION \
@@ -72,7 +87,7 @@ jobs:
           ~/wasm-build/emsdk/emsdk activate $EMSDK_VERSION
 
       - name: Activate cached emsdk
-        if: steps.cache-emsdk.outputs.cache-hit == 'true' || inputs.skip-caches == 'true'
+        if: steps.cache-emsdk.outputs.cache-hit == 'true'
         run: ~/wasm-build/emsdk/emsdk activate $EMSDK_VERSION || true
 
       # ------------------------------------------------------- upstream clone
@@ -87,13 +102,14 @@ jobs:
       # ----------------------------------------------------------- qpdf wasm
       - name: Cache qpdf wasm build
         id: cache-qpdf
+        if: inputs.skip-caches != 'true'
         uses: actions/cache@v4
         with:
           path: wasm/build/install
           key: qpdf-wasm-${{ env.QPDF_VERSION }}-ems${{ env.EMSDK_VERSION }}-${{ hashFiles('wasm/build-qpdf-wasm.sh') }}
 
       - name: Build qpdf (wasm)
-        if: steps.cache-qpdf.outputs.cache-hit != 'true' && inputs.skip-caches != 'true'
+        if: steps.cache-qpdf.outputs.cache-hit != 'true'
         run: |
           source ~/wasm-build/emsdk/emsdk_env.sh
           ./wasm/build-qpdf-wasm.sh
@@ -101,13 +117,14 @@ jobs:
       # -------------------------------------------------------- pikepdf wasm
       - name: Cache pikepdf wasm wheel
         id: cache-pikepdf
+        if: inputs.skip-caches != 'true'
         uses: actions/cache@v4
         with:
           path: wasm/build/dist
           key: pikepdf-wasm-${{ env.PIKEPDF_VERSION }}-pyodide${{ env.PYODIDE_VERSION }}-qpdf${{ env.QPDF_VERSION }}-${{ hashFiles('wasm/build-pikepdf-wasm.sh') }}
 
       - name: Build pikepdf (wasm wheel)
-        if: steps.cache-pikepdf.outputs.cache-hit != 'true' && inputs.skip-caches != 'true'
+        if: steps.cache-pikepdf.outputs.cache-hit != 'true'
         run: |
           source ~/wasm-build/emsdk/emsdk_env.sh
           ./wasm/build-pikepdf-wasm.sh

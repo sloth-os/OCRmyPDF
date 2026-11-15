@@ -46,12 +46,31 @@ class JobProgress:
 
 
 _ACTIVE_PROGRESS: JobProgress | None = None
+_JS_EVENT_CALLBACK: Any = None
+
+
+def set_event_callback(cb: Any) -> None:
+    """Register the worker's live progress relay.
+
+    Called once from the JS worker glue (``wasmenv.set_event_callback(
+    _tw_post_event)`` in public/worker.js). Events are both buffered on the
+    active :class:`JobProgress` (returned by :func:`run_ocr`) and pushed live
+    through this callback so the web UI updates while a job is still running.
+    """
+    global _JS_EVENT_CALLBACK
+    _JS_EVENT_CALLBACK = cb
 
 
 def _emit(event: dict[str, Any]) -> None:
     p = _ACTIVE_PROGRESS
     if p is not None:
         p.events.append(event)
+    cb = _JS_EVENT_CALLBACK
+    if cb is not None:
+        try:
+            cb(event)
+        except Exception:  # progress must never kill a job
+            pass
 
 
 def install_progress_hooks() -> None:

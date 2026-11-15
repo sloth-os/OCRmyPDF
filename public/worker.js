@@ -253,7 +253,9 @@ self.onmessage = async (e) => {
     if (type === "ocr") {
       const { file, options } = e.data;
       const result = await runOcr(file, options);
-      post({ id, result }, [result.pdfBlob]);
+      // No transfer list: Blobs structured-clone fine (bytes are shared, not
+      // copied) and are NOT transferable — including one throws DataCloneError.
+      post({ id, result });
       return;
     }
     throw new Error(`unknown message: ${type}`);
