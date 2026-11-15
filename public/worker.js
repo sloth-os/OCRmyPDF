@@ -225,9 +225,11 @@ json.dumps(out)`;
     } catch {}
   }
 
+  // Last line must be a bare expression: runPython returns the value of the
+  // final expression, and `print(...)` evaluates to None (→ NaN in JS).
   const pages = Number(
     pyodide.runPython(
-      `from pypdfium2 import PdfDocument; print(len(PdfDocument("/work/output.pdf")))`
+      `from pypdfium2 import PdfDocument; len(PdfDocument("/work/output.pdf"))`
     )
   );
 

@@ -64,14 +64,17 @@ jobs:
           enable-cache: true
 
       # ------------------------------------------------------------- emsdk
-      # skip-caches semantics: when the input is set, the cache restore steps
-      # are skipped entirely, so cache-hit stays empty and every build step
-      # below runs ("ignore build caches, rebuild everything"). With the
-      # restore steps unconditional, a skip-caches dispatch would instead
-      # restore AND skip the builds (the old inverted guards), failing outright.
+      # skip-caches semantics: `inputs.skip-caches` is a `type: boolean` input,
+      # so it must be compared to the boolean `true` — NOT the string 'true'
+      # (GitHub coerces boolean true→1 and string 'true'→NaN, so `!= 'true'`
+      # is always true and the checkbox would be inert). When the input is set,
+      # the cache restore steps are skipped entirely, so cache-hit stays empty
+      # and every build step below runs ("ignore build caches, rebuild
+      # everything"). With the restore steps unconditional, a skip-caches
+      # dispatch would instead restore AND skip the builds.
       - name: Cache emsdk
         id: cache-emsdk
-        if: inputs.skip-caches != 'true'
+        if: inputs.skip-caches != true
         uses: actions/cache@v4
         with:
           path: ~/wasm-build/emsdk
@@ -102,7 +105,7 @@ jobs:
       # ----------------------------------------------------------- qpdf wasm
       - name: Cache qpdf wasm build
         id: cache-qpdf
-        if: inputs.skip-caches != 'true'
+        if: inputs.skip-caches != true
         uses: actions/cache@v4
         with:
           path: wasm/build/install
@@ -117,7 +120,7 @@ jobs:
       # -------------------------------------------------------- pikepdf wasm
       - name: Cache pikepdf wasm wheel
         id: cache-pikepdf
-        if: inputs.skip-caches != 'true'
+        if: inputs.skip-caches != true
         uses: actions/cache@v4
         with:
           path: wasm/build/dist
