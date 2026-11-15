@@ -11,14 +11,19 @@
 // Env/args: SITE_DIR or --site <dir> (default build/site under this file).
 
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
 const argv = process.argv.slice(2);
 const ai = argv.indexOf("--site");
-const siteDir = (ai !== -1 ? argv[ai + 1] : process.env.SITE_DIR) || join(here, "build", "site");
+// Resolve to an absolute path: ESM import() treats a relative specifier
+// ("wasm/build/site/...") as a bare package name → ERR_MODULE_NOT_FOUND.
+// CI invokes this as `node wasm/smoke-test.mjs --site wasm/build/site`.
+const siteDir = resolve(
+  (ai !== -1 ? argv[ai + 1] : process.env.SITE_DIR) || join(here, "build", "site")
+);
 console.log(`[smoke] site: ${siteDir}`);
 
 function fail(msg) {
@@ -27,7 +32,9 @@ function fail(msg) {
 }
 
 // ------------------------------------------------------------------ engine
-const { createOCREngine, supportsFastBuild } = await import(join(siteDir, "tesseract", "lib.js"));
+const { createOCREngine, supportsFastBuild } = await import(
+  pathToFileURL(join(siteDir, "tesseract", "lib.js")).href
+);
 const wasmPath = join(
   siteDir,
   "tesseract",
@@ -41,7 +48,7 @@ engine.loadModel(new Uint8Array(readFileSync(join(siteDir, "tessdata", "eng.trai
 console.log("[smoke] tesseract engine + eng model loaded");
 
 // ------------------------------------------------------------------ pyodide
-const { loadPyodide } = await import(join(siteDir, "pyodide", "pyodide.mjs"));
+const { loadPyodide } = await import(pathToFileURL(join(siteDir, "pyodide", "pyodide.mjs")).href);
 const pyodide = await loadPyodide({
   indexURL: join(siteDir, "pyodide") + "/",
 });
